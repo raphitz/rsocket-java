@@ -49,6 +49,7 @@ import io.rsocket.keepalive.KeepAliveFramesAcceptor;
 import io.rsocket.keepalive.KeepAliveHandler;
 import io.rsocket.keepalive.KeepAliveSupport;
 import io.rsocket.lease.RequesterLeaseHandler;
+import io.rsocket.util.EmptyPayload;
 import io.rsocket.util.MonoLifecycleHandler;
 import java.nio.channels.ClosedChannelException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -72,7 +73,7 @@ import reactor.util.concurrent.Queues;
 /**
  * Requester Side of a RSocket socket. Sends {@link ByteBuf}s to a {@link RSocketResponder} of peer
  */
-class RSocketRequester implements RSocket {
+class RSocketRequester implements RSocket, StateAware {
   private static final AtomicReferenceFieldUpdater<RSocketRequester, Throwable> TERMINATION_ERROR =
       AtomicReferenceFieldUpdater.newUpdater(
           RSocketRequester.class, Throwable.class, "terminationError");
@@ -411,6 +412,7 @@ class RSocketRequester implements RSocket {
           }
         };
 
+
     return receiver
         .doOnRequest(
             new LongConsumer() {
@@ -487,7 +489,7 @@ class RSocketRequester implements RSocket {
   }
 
   @Nullable
-  private Throwable checkAvailable() {
+  public Throwable checkAvailable() {
     Throwable err = this.terminationError;
     if (err != null) {
       return err;
