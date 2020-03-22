@@ -27,6 +27,7 @@ import io.rsocket.util.DefaultPayload;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.time.Duration;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -147,7 +148,11 @@ public interface TransportTest {
         .requestChannel(Flux.empty())
         .as(StepVerifier::create)
         .expectNextCount(0)
-        .expectComplete()
+        .expectErrorSatisfies(
+            t ->
+                Assertions.assertThat(t)
+                    .isInstanceOf(CancellationException.class)
+                    .hasMessage("Empty Source"))
         .verify(getTimeout());
   }
 
