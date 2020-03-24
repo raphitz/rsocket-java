@@ -169,7 +169,7 @@ class RSocketRequester implements RSocket, StateAware {
   }
 
   private Mono<Void> handleFireAndForget(Payload payload) {
-    return new UnicastFireAndForgetMono(
+    return new FireAndForgetMono(
         this.allocator,
         payload,
         this.mtu,
@@ -180,7 +180,7 @@ class RSocketRequester implements RSocket, StateAware {
   }
 
   private Mono<Payload> handleRequestResponse(final Payload payload) {
-    return new UnicastRequestResponseMono(
+    return new RequestResponseMono(
         this.allocator,
         payload,
         this.mtu,
@@ -191,7 +191,7 @@ class RSocketRequester implements RSocket, StateAware {
   }
 
   private Flux<Payload> handleRequestStream(final Payload payload) {
-    return new UnicastRequestStreamFlux(
+    return new RequestStreamFlux(
         this.allocator,
         payload,
         this.mtu,
@@ -202,7 +202,7 @@ class RSocketRequester implements RSocket, StateAware {
   }
 
   private Flux<Payload> handleChannel(Flux<Payload> request) {
-    return new UnicastRequestChannelFlux(
+    return new RequestChannelFlux(
         this.allocator,
         request,
         this.mtu,
