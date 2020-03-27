@@ -22,6 +22,7 @@ import static io.rsocket.keepalive.KeepAliveSupport.KeepAlive;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.Unpooled;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.collection.IntObjectMap;
 import io.rsocket.DuplexConnection;
@@ -29,6 +30,7 @@ import io.rsocket.Payload;
 import io.rsocket.RSocket;
 import io.rsocket.exceptions.ConnectionErrorException;
 import io.rsocket.exceptions.Exceptions;
+import io.rsocket.fragmentation.ReassemblyUtils;
 import io.rsocket.frame.ErrorFrameFlyweight;
 import io.rsocket.frame.FrameHeaderFlyweight;
 import io.rsocket.frame.FrameType;
@@ -50,7 +52,6 @@ import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
-import reactor.core.CoreSubscriber;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -72,7 +73,7 @@ class RSocketRequester implements RSocket, StateAware {
   private final Consumer<Throwable> errorConsumer;
   private final StreamIdSupplier streamIdSupplier;
   private final IntObjectMap<Subscription> activeSubscriptions;
-  private final IntObjectMap<CoreSubscriber<? super Payload>> activeSubscribers;
+  private final IntObjectMap<Reassemble<?>> activeSubscribers;
   private final UnboundedProcessor<ByteBuf> sendProcessor;
   private final RequesterLeaseHandler leaseHandler;
   private final ByteBufAllocator allocator;
@@ -187,7 +188,8 @@ class RSocketRequester implements RSocket, StateAware {
         this,
         this.streamIdSupplier,
         this.activeSubscribers,
-        this.sendProcessor);
+        this.sendProcessor,
+        this.payloadDecoder);
   }
 
   private Flux<Payload> handleRequestStream(final Payload payload) {
@@ -198,7 +200,8 @@ class RSocketRequester implements RSocket, StateAware {
         this,
         this.streamIdSupplier,
         this.activeSubscribers,
-        this.sendProcessor);
+        this.sendProcessor,
+        this.payloadDecoder);
   }
 
   private Flux<Payload> handleChannel(Flux<Payload> request) {
@@ -210,7 +213,8 @@ class RSocketRequester implements RSocket, StateAware {
         this.streamIdSupplier,
         this.activeSubscribers,
         this.activeSubscriptions,
-        this.sendProcessor);
+        this.sendProcessor,
+        this.payloadDecoder);
   }
 
   private Mono<Void> handleMetadataPush(Payload payload) {
@@ -280,19 +284,23 @@ class RSocketRequester implements RSocket, StateAware {
     }
   }
 
+  @SuppressWarnings({"rawtypes", "unchecked"})
   private void handleFrame(int streamId, FrameType type, ByteBuf frame) {
-    CoreSubscriber<? super Payload> receiver = activeSubscribers.get(streamId);
+    Reassemble receiver = activeSubscribers.get(streamId);
     if (receiver == null) {
       handleMissingResponseProcessor(streamId, type, frame);
     } else {
       switch (type) {
         case ERROR:
           receiver.onError(Exceptions.from(streamId, frame));
-          activeSubscribers.remove(streamId);
           break;
         case NEXT_COMPLETE:
-          receiver.onNext(payloadDecoder.apply(frame));
-          receiver.onComplete();
+          if (receiver.isReassemblingNow()) {
+            receiver.reassemble(ReassemblyUtils.dataAndMetadata(frame), false, true);
+          } else {
+            receiver.onNext(payloadDecoder.apply(frame));
+            receiver.onComplete();
+          }
           break;
         case CANCEL:
           {
@@ -303,7 +311,11 @@ class RSocketRequester implements RSocket, StateAware {
             break;
           }
         case NEXT:
-          receiver.onNext(payloadDecoder.apply(frame));
+          if (receiver.isReassemblingNow()) {
+            receiver.reassemble(ReassemblyUtils.dataAndMetadata(frame), false, false);
+          } else {
+            receiver.onNext(payloadDecoder.apply(frame));
+          }
           break;
         case REQUEST_N:
           {
@@ -315,9 +327,14 @@ class RSocketRequester implements RSocket, StateAware {
             break;
           }
         case COMPLETE:
-          receiver.onComplete();
-          activeSubscribers.remove(streamId);
-          break;
+          {
+            if (receiver.isReassemblingNow()) {
+              receiver.reassemble(Unpooled.EMPTY_BUFFER, false, true);
+            } else {
+              receiver.onComplete();
+            }
+            break;
+          }
         default:
           throw new IllegalStateException(
               "Client received supported frame on stream " + streamId + ": " + frame.toString());
