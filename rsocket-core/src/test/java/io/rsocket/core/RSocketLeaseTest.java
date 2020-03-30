@@ -29,6 +29,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
+import io.netty.util.ReferenceCountUtil;
 import io.rsocket.exceptions.Exceptions;
 import io.rsocket.frame.FrameHeaderFlyweight;
 import io.rsocket.frame.FrameType;
@@ -315,6 +316,8 @@ class RSocketLeaseTest {
     Assertions.assertThat(receivedLease.getTimeToLiveMillis()).isEqualTo(ttl);
     Assertions.assertThat(receivedLease.getStartingAllowedRequests()).isEqualTo(numberOfRequests);
     Assertions.assertThat(receivedLease.getMetadata().toString(utf8)).isEqualTo(metadataContent);
+
+    ReferenceCountUtil.safeRelease(leaseFrame);
   }
 
   ByteBuf leaseFrame(int ttl, int requests, ByteBuf metadata) {

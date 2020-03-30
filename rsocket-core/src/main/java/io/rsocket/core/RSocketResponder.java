@@ -23,7 +23,6 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.collection.IntObjectMap;
-import io.rsocket.fragmentation.ReassemblyUtils;
 import io.rsocket.frame.ErrorFrameFlyweight;
 import io.rsocket.frame.FrameHeaderFlyweight;
 import io.rsocket.frame.FrameType;
@@ -181,7 +180,12 @@ class RSocketResponder implements ResponderRSocket {
   public Flux<Payload> requestChannel(Payload payload, Publisher<Payload> payloads) {
     try {
       if (leaseHandler.useLease()) {
-        return responderRSocket.requestChannel(payload, payloads);
+        final ResponderRSocket responderRSocket = this.responderRSocket;
+        if (responderRSocket != null) {
+          return responderRSocket.requestChannel(payload, payloads);
+        } else {
+          return requestHandler.requestChannel(payloads);
+        }
       } else {
         payload.release();
         return Flux.error(leaseHandler.leaseError());
@@ -263,11 +267,9 @@ class RSocketResponder implements ResponderRSocket {
         case NEXT:
           receiver = activeStreams.get(streamId);
           if (receiver != null) {
-            if (receiver.isReassemblingNow()) {
-              receiver.reassemble(
-                  ReassemblyUtils.dataAndMetadata(frame),
-                  FrameHeaderFlyweight.hasFollows(frame),
-                  false);
+            boolean hasFollows = FrameHeaderFlyweight.hasFollows(frame);
+            if (receiver.isReassemblingNow() || hasFollows) {
+              receiver.reassemble(frame, hasFollows, false);
             } else {
               receiver.onNext(payloadDecoder.apply(frame));
             }
@@ -293,7 +295,7 @@ class RSocketResponder implements ResponderRSocket {
           receiver = activeStreams.get(streamId);
           if (receiver != null) {
             if (receiver.isReassemblingNow()) {
-              receiver.reassemble(ReassemblyUtils.dataAndMetadata(frame), false, true);
+              receiver.reassemble(frame, false, true);
             } else {
               receiver.onNext(payloadDecoder.apply(frame));
               receiver.onComplete();
@@ -319,17 +321,11 @@ class RSocketResponder implements ResponderRSocket {
 
   private void handleFireAndForget(int streamId, ByteBuf frame) {
     final IntObjectMap<Reassemble<?>> activeStreams = this.activeStreams;
-    if (activeStreams.containsKey(streamId)) {
+    if (!activeStreams.containsKey(streamId)) {
       if (FrameHeaderFlyweight.hasFollows(frame)) {
         FireAndForgetSubscriber subscriber =
             new FireAndForgetSubscriber(
-                streamId,
-                ReassemblyUtils.dataAndMetadata(frame),
-                allocator,
-                payloadDecoder,
-                errorConsumer,
-                activeStreams,
-                this);
+                streamId, frame, allocator, payloadDecoder, errorConsumer, activeStreams, this);
         if (activeStreams.putIfAbsent(streamId, subscriber) != null) {
           subscriber.cancel();
         }
@@ -341,14 +337,14 @@ class RSocketResponder implements ResponderRSocket {
 
   private void handleRequestResponse(int streamId, ByteBuf frame) {
     final IntObjectMap<Reassemble<?>> activeStreams = this.activeStreams;
-    if (activeStreams.containsKey(streamId)) {
+    if (!activeStreams.containsKey(streamId)) {
       if (FrameHeaderFlyweight.hasFollows(frame)) {
         RequestResponseSubscriber subscriber =
             new RequestResponseSubscriber(
                 streamId,
                 this.allocator,
                 this.payloadDecoder,
-                ReassemblyUtils.dataAndMetadata(frame),
+                frame,
                 this.mtu,
                 this.errorConsumer,
                 this.activeStreams,
@@ -375,7 +371,7 @@ class RSocketResponder implements ResponderRSocket {
 
   private void handleStream(int streamId, ByteBuf frame, int initialRequestN) {
     final IntObjectMap<Reassemble<?>> activeStreams = this.activeStreams;
-    if (activeStreams.containsKey(streamId)) {
+    if (!activeStreams.containsKey(streamId)) {
       if (FrameHeaderFlyweight.hasFollows(frame)) {
         RequestStreamSubscriber subscriber =
             new RequestStreamSubscriber(
@@ -383,7 +379,7 @@ class RSocketResponder implements ResponderRSocket {
                 initialRequestN == Integer.MAX_VALUE ? Long.MAX_VALUE : initialRequestN,
                 this.allocator,
                 this.payloadDecoder,
-                ReassemblyUtils.dataAndMetadata(frame),
+                frame,
                 this.mtu,
                 this.errorConsumer,
                 this.activeStreams,
@@ -411,7 +407,7 @@ class RSocketResponder implements ResponderRSocket {
 
   private void handleChannel(int streamId, ByteBuf frame, int initialRequestN) {
     final IntObjectMap<Reassemble<?>> activeStreams = this.activeStreams;
-    if (activeStreams.containsKey(streamId)) {
+    if (!activeStreams.containsKey(streamId)) {
       if (FrameHeaderFlyweight.hasFollows(frame)) {
         RequestChannelSubscriber subscriber =
             new RequestChannelSubscriber(
@@ -419,7 +415,7 @@ class RSocketResponder implements ResponderRSocket {
                 initialRequestN == Integer.MAX_VALUE ? Long.MAX_VALUE : initialRequestN,
                 this.allocator,
                 this.payloadDecoder,
-                ReassemblyUtils.dataAndMetadata(frame),
+                frame,
                 this.mtu,
                 this.errorConsumer,
                 this.activeStreams,
