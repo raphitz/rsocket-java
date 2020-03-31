@@ -59,6 +59,7 @@ class RSocketResponder implements ResponderRSocket {
   private final FireAndForgetSubscriber noOpFireAndForgetSubscriber;
 
   private final int mtu;
+  private final MetadataPushSubscriber metadataPushSubscriber;
 
   RSocketResponder(
       ByteBufAllocator allocator,
@@ -85,6 +86,7 @@ class RSocketResponder implements ResponderRSocket {
     this.sendProcessor = new UnboundedProcessor<>();
     this.mtu = mtu;
     this.noOpFireAndForgetSubscriber = new FireAndForgetSubscriber(errorConsumer);
+    this.metadataPushSubscriber = new MetadataPushSubscriber(errorConsumer);
 
     connection
         .send(sendProcessor)
@@ -447,7 +449,7 @@ class RSocketResponder implements ResponderRSocket {
   }
 
   private void handleMetadataPush(Mono<Void> result) {
-    result.subscribe(this.noOpFireAndForgetSubscriber);
+    result.subscribe(this.metadataPushSubscriber);
   }
 
   private void handleCancelFrame(int streamId) {
