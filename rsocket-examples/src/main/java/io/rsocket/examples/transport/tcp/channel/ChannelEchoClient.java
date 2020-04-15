@@ -16,7 +16,6 @@
 
 package io.rsocket.examples.transport.tcp.channel;
 
-import io.netty.util.ReferenceCounted;
 import io.rsocket.AbstractRSocket;
 import io.rsocket.ConnectionSetupPayload;
 import io.rsocket.Payload;
@@ -28,8 +27,6 @@ import io.rsocket.transport.netty.client.TcpClientTransport;
 import io.rsocket.transport.netty.server.TcpServerTransport;
 import io.rsocket.util.DefaultPayload;
 import java.time.Duration;
-import java.util.concurrent.atomic.AtomicLong;
-
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
