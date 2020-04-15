@@ -257,7 +257,7 @@ public class RSocketConnector {
 
   public Mono<RSocket> connect(Supplier<ClientTransport> transportSupplier) {
     Mono<DuplexConnection> connectionMono =
-        Mono.fromSupplier(transportSupplier).flatMap(t -> t.connect(mtu));
+        Mono.fromSupplier(transportSupplier).flatMap(ClientTransport::connect);
     return connectionMono
         .flatMap(
             connection -> {

@@ -144,7 +144,7 @@ public final class RSocketServer {
           @Override
           public Mono<T> get() {
             return transport
-                .start(duplexConnection -> acceptor(serverSetup, duplexConnection), mtu)
+                .start(duplexConnection -> acceptor(serverSetup, duplexConnection))
                 .doOnNext(c -> c.onClose().doFinally(v -> serverSetup.dispose()).subscribe());
           }
         });
