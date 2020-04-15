@@ -1,4 +1,4 @@
-package io.rsocket;
+package io.rsocket.core;
 
 import static io.rsocket.fragmentation.FragmentationUtils.isFragmentable;
 import static io.rsocket.fragmentation.FragmentationUtils.isValid;
@@ -10,6 +10,8 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.collection.IntObjectMap;
+import io.rsocket.Payload;
+import io.rsocket.RSocket;
 import io.rsocket.fragmentation.FragmentationUtils;
 import io.rsocket.fragmentation.ReassemblyUtils;
 import io.rsocket.frame.ErrorFrameFlyweight;

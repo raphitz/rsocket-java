@@ -1,8 +1,11 @@
-package io.rsocket;
+package io.rsocket.core;
 
-import static io.rsocket.RequestStreamFlux.FLAG_REASSEMBLY;
-import static io.rsocket.RequestStreamFlux.MASK_REQUESTED;
-import static io.rsocket.RequestStreamFlux.MASK_REQUESTED_MAX;
+import static io.rsocket.core.RequestStreamFlux.FLAG_REASSEMBLY;
+import static io.rsocket.core.RequestStreamFlux.MASK_REQUESTED;
+import static io.rsocket.core.RequestStreamFlux.MASK_REQUESTED_MAX;
+import static io.rsocket.core.RequestStreamFlux.STATE_SUBSCRIBED;
+import static io.rsocket.core.RequestStreamFlux.STATE_TERMINATED;
+import static io.rsocket.core.RequestStreamFlux.STATE_UNSUBSCRIBED;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -10,6 +13,8 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.CharsetUtil;
 import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.collection.IntObjectMap;
+import io.rsocket.FrameAssert;
+import io.rsocket.Payload;
 import io.rsocket.exceptions.ApplicationErrorException;
 import io.rsocket.fragmentation.FragmentationUtils;
 import io.rsocket.frame.FrameLengthFlyweight;
@@ -45,6 +50,24 @@ public class RequestStreamFluxTest {
     StepVerifier.setDefaultTimeout(Duration.ofSeconds(2));
   }
 
+  /*
+   * +-------------------------------+
+   * |      General Test Cases       |
+   * +-------------------------------+
+   */
+
+  /**
+   * State Machine check. Ensure migration from
+   *
+   * <pre>
+   * UNSUBSCRIBED -> SUBSCRIBED
+   * SUBSCRIBED -> REQUESTED(1) -> REQUESTED(0)
+   * REQUESTED(0) -> REQUESTED(1) -> REQUESTED(0)
+   * REQUESTED(0) -> REQUESTED(MAX)
+   * REQUESTED(MAX) -> REQUESTED(MAX) && REASSEMBLY (extra flag enabled which indicates reassembly)
+   * REQUESTED(MAX) && REASSEMBLY -> TERMINATED
+   * </pre>
+   */
   @Test
   public void requestNFrameShouldBeSentOnSubscriptionAndThenSeparately() {
     final UnboundedProcessor<ByteBuf> sender = new UnboundedProcessor<>();
@@ -62,6 +85,9 @@ public class RequestStreamFluxTest {
             sender,
             PayloadDecoder.ZERO_COPY);
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested)
+        .isEqualTo(RequestStreamFlux.STATE_UNSUBSCRIBED);
     Assertions.assertThat(activeStreams).isEmpty();
 
     final AssertSubscriber<Payload> assertSubscriber =
@@ -113,7 +139,7 @@ public class RequestStreamFluxTest {
     Assertions.assertThat(requestNFrame.release()).isTrue();
     Assertions.assertThat(requestNFrame.refCnt()).isZero();
 
-    // state machine check
+    // state machine check. Request N Frame should sent so request field should be 0
     Assertions.assertThat(requestStreamFlux.requested).isZero();
 
     assertSubscriber.request(Long.MAX_VALUE);
@@ -141,6 +167,7 @@ public class RequestStreamFluxTest {
     Assertions.assertThat(requestStreamFlux.requested)
         .isEqualTo(RequestStreamFlux.MASK_REQUESTED_MAX);
 
+    // no intent to check reassembly correctness here, just to ensure that state is correctly formed
     requestStreamFlux.reassemble(Unpooled.EMPTY_BUFFER, true, false);
 
     // state machine check
@@ -162,10 +189,18 @@ public class RequestStreamFluxTest {
     Assertions.assertThat(sender.isEmpty()).isTrue();
 
     // state machine check
-    Assertions.assertThat(requestStreamFlux.requested)
-        .isEqualTo(RequestStreamFlux.STATE_TERMINATED);
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
   }
 
+  /**
+   * State Machine check. Ensure migration from
+   *
+   * <pre>
+   * UNSUBSCRIBED -> SUBSCRIBED
+   * SUBSCRIBED -> REQUESTED(MAX)
+   * REQUESTED(MAX) -> TERMINATED
+   * </pre>
+   */
   @Test
   public void requestNFrameShouldBeSentExactlyOnceIfItIsMaxAllowed() {
     final UnboundedProcessor<ByteBuf> sender = new UnboundedProcessor<>();
@@ -183,6 +218,9 @@ public class RequestStreamFluxTest {
             sender,
             PayloadDecoder.ZERO_COPY);
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested)
+        .isEqualTo(RequestStreamFlux.STATE_UNSUBSCRIBED);
     Assertions.assertThat(activeStreams).isEmpty();
 
     final AssertSubscriber<Payload> assertSubscriber =
@@ -190,7 +228,15 @@ public class RequestStreamFluxTest {
     Assertions.assertThat(payload.refCnt()).isOne();
     Assertions.assertThat(activeStreams).isEmpty();
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested)
+        .isEqualTo(RequestStreamFlux.STATE_SUBSCRIBED);
+
     assertSubscriber.request(Long.MAX_VALUE / 2 + 1);
+
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested)
+        .isEqualTo(RequestStreamFlux.MASK_REQUESTED_MAX);
 
     Assertions.assertThat(payload.refCnt()).isZero();
     Assertions.assertThat(activeStreams).containsEntry(1, requestStreamFlux);
@@ -217,6 +263,10 @@ public class RequestStreamFluxTest {
     assertSubscriber.request(1);
     Assertions.assertThat(sender.isEmpty()).isTrue();
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested)
+        .isEqualTo(RequestStreamFlux.MASK_REQUESTED_MAX);
+
     requestStreamFlux.onNext(EmptyPayload.INSTANCE);
     requestStreamFlux.onComplete();
 
@@ -224,10 +274,41 @@ public class RequestStreamFluxTest {
 
     Assertions.assertThat(payload.refCnt()).isZero();
     Assertions.assertThat(activeStreams).isEmpty();
-
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
     Assertions.assertThat(sender.isEmpty()).isTrue();
   }
 
+  /**
+   * State Machine check. Ensure migration from
+   *
+   * <pre>
+   * UNSUBSCRIBED -> SUBSCRIBED
+   * SUBSCRIBED -> REQUESTED(1) -> REQUESTED(0)
+   * </pre>
+   *
+   * And then for the following cases:
+   *
+   * <pre>
+   * [0]: REQUESTED(0) -> REQUESTED(MAX) (with onNext and few extra request(1) which should not affect state anyhow and should not sent any extra frames)
+   *      REQUESTED(MAX) -> TERMINATED
+   *
+   * [1]: REQUESTED(0) -> REQUESTED(MAX) (with onComplete rightaway)
+   *      REQUESTED(MAX) -> TERMINATED
+   *
+   * [2]: REQUESTED(0) -> REQUESTED(MAX) (with onError rightaway)
+   *      REQUESTED(MAX) -> TERMINATED
+   *
+   * [3]: REQUESTED(0) -> REASSEMBLY
+   *      REASSEMBLY -> REASSEMBLY && REQUESTED(MAX)
+   *      REASSEMBLY && REQUESTED(MAX) -> REQUESTED(MAX)
+   *      REQUESTED(MAX) -> TERMINATED
+   *
+   * [4]: REQUESTED(0) -> REQUESTED(MAX)
+   *      REQUESTED(MAX) -> REASSEMBLY && REQUESTED(MAX)
+   *      REASSEMBLY && REQUESTED(MAX) -> TERMINATED (because of cancel() invocation)
+   * </pre>
+   */
   @ParameterizedTest
   @MethodSource("frameShouldBeSentOnFirstRequestResponses")
   public void frameShouldBeSentOnFirstRequest(
@@ -247,6 +328,9 @@ public class RequestStreamFluxTest {
             sender,
             PayloadDecoder.ZERO_COPY);
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested)
+        .isEqualTo(RequestStreamFlux.STATE_UNSUBSCRIBED);
     Assertions.assertThat(activeStreams).isEmpty();
 
     transformer
@@ -254,9 +338,18 @@ public class RequestStreamFluxTest {
             requestStreamFlux,
             StepVerifier.create(requestStreamFlux, 0)
                 .expectSubscription()
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(requestStreamFlux.requested)
+                            .isEqualTo(RequestStreamFlux.STATE_SUBSCRIBED))
                 .then(() -> Assertions.assertThat(payload.refCnt()).isOne())
                 .then(() -> Assertions.assertThat(activeStreams).isEmpty())
                 .thenRequest(1)
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(requestStreamFlux.requested).isEqualTo(0))
                 .then(() -> Assertions.assertThat(payload.refCnt()).isZero())
                 .then(
                     () -> Assertions.assertThat(activeStreams).containsEntry(1, requestStreamFlux)))
@@ -303,6 +396,8 @@ public class RequestStreamFluxTest {
       Assertions.assertThat(cancelFrame.release()).isTrue();
       Assertions.assertThat(cancelFrame.refCnt()).isZero();
     }
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
     Assertions.assertThat(sender.isEmpty()).isTrue();
   }
 
@@ -313,24 +408,57 @@ public class RequestStreamFluxTest {
             sv.then(() -> rsf.onNext(EmptyPayload.INSTANCE))
                 .expectNext(EmptyPayload.INSTANCE)
                 .thenRequest(Long.MAX_VALUE)
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(rsf.requested).isEqualTo(MASK_REQUESTED_MAX))
                 .then(() -> rsf.onNext(EmptyPayload.INSTANCE))
                 .thenRequest(1L)
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(rsf.requested).isEqualTo(MASK_REQUESTED_MAX))
                 .expectNext(EmptyPayload.INSTANCE)
                 .thenRequest(1L)
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(rsf.requested).isEqualTo(MASK_REQUESTED_MAX))
                 .then(rsf::onComplete)
+                .thenRequest(1L)
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(rsf.requested).isEqualTo(STATE_TERMINATED))
                 .expectComplete(),
         (rsf, sv) ->
             sv.then(() -> rsf.onNext(EmptyPayload.INSTANCE))
                 .expectNext(EmptyPayload.INSTANCE)
                 .thenRequest(Long.MAX_VALUE)
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(rsf.requested).isEqualTo(MASK_REQUESTED_MAX))
                 .then(rsf::onComplete)
                 .thenRequest(1L)
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(rsf.requested).isEqualTo(STATE_TERMINATED))
                 .expectComplete(),
         (rsf, sv) ->
             sv.then(() -> rsf.onNext(EmptyPayload.INSTANCE))
                 .expectNext(EmptyPayload.INSTANCE)
                 .thenRequest(Long.MAX_VALUE)
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(rsf.requested).isEqualTo(MASK_REQUESTED_MAX))
                 .then(() -> rsf.onError(new ApplicationErrorException("test")))
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(rsf.requested).isEqualTo(STATE_TERMINATED))
                 .thenRequest(1L)
                 .thenRequest(1L)
                 .expectErrorSatisfies(
@@ -361,18 +489,9 @@ public class RequestStreamFluxTest {
                     followingFrame.release();
                   })
               .then(
-                  () -> {
-                    final ByteBuf followingFrame =
-                        FragmentationUtils.encodeFollowsFragment(
-                            ByteBufAllocator.DEFAULT,
-                            64,
-                            1,
-                            false,
-                            payload.metadata(),
-                            payload.data());
-                    rsf.reassemble(followingFrame, true, false);
-                    followingFrame.release();
-                  })
+                  () ->
+                      // state machine check
+                      Assertions.assertThat(rsf.requested).isEqualTo(FLAG_REASSEMBLY))
               .then(
                   () -> {
                     final ByteBuf followingFrame =
@@ -386,6 +505,33 @@ public class RequestStreamFluxTest {
                     rsf.reassemble(followingFrame, true, false);
                     followingFrame.release();
                   })
+              .then(
+                  () ->
+                      // state machine check
+                      Assertions.assertThat(rsf.requested).isEqualTo(FLAG_REASSEMBLY))
+              .then(
+                  () -> {
+                    final ByteBuf followingFrame =
+                        FragmentationUtils.encodeFollowsFragment(
+                            ByteBufAllocator.DEFAULT,
+                            64,
+                            1,
+                            false,
+                            payload.metadata(),
+                            payload.data());
+                    rsf.reassemble(followingFrame, true, false);
+                    followingFrame.release();
+                  })
+              .then(
+                  () ->
+                      // state machine check
+                      Assertions.assertThat(rsf.requested).isEqualTo(FLAG_REASSEMBLY))
+              .thenRequest(Long.MAX_VALUE)
+              .then(
+                  () ->
+                      // state machine check
+                      Assertions.assertThat(rsf.requested)
+                          .isEqualTo(FLAG_REASSEMBLY | MASK_REQUESTED_MAX))
               .then(
                   () -> {
                     final ByteBuf followingFrame =
@@ -399,6 +545,10 @@ public class RequestStreamFluxTest {
                     rsf.reassemble(followingFrame, false, false);
                     followingFrame.release();
                   })
+              .then(
+                  () ->
+                      // state machine check
+                      Assertions.assertThat(rsf.requested).isEqualTo(MASK_REQUESTED_MAX))
               .assertNext(
                   p -> {
                     Assertions.assertThat(p.data()).isEqualTo(Unpooled.wrappedBuffer(data));
@@ -408,9 +558,12 @@ public class RequestStreamFluxTest {
                     Assertions.assertThat(p.refCnt()).isZero();
                   })
               .then(payload::release)
-              .thenRequest(Long.MAX_VALUE)
               .then(() -> rsf.onNext(payload2))
               .thenRequest(1)
+              .then(
+                  () ->
+                      // state machine check
+                      Assertions.assertThat(rsf.requested).isEqualTo(MASK_REQUESTED_MAX))
               .assertNext(
                   p -> {
                     Assertions.assertThat(p.data()).isEqualTo(Unpooled.wrappedBuffer(data));
@@ -420,7 +573,15 @@ public class RequestStreamFluxTest {
                     Assertions.assertThat(p.refCnt()).isZero();
                   })
               .thenRequest(1)
+              .then(
+                  () ->
+                      // state machine check
+                      Assertions.assertThat(rsf.requested).isEqualTo(MASK_REQUESTED_MAX))
               .then(rsf::onComplete)
+              .then(
+                  () ->
+                      // state machine check
+                      Assertions.assertThat(rsf.requested).isEqualTo(STATE_TERMINATED))
               .expectComplete();
         },
         (rsf, sv) -> {
@@ -460,27 +621,58 @@ public class RequestStreamFluxTest {
                       })
                   .thenRequest(Long.MAX_VALUE)
                   .then(
+                      () ->
+                          // state machine check
+                          Assertions.assertThat(rsf.requested).isEqualTo(MASK_REQUESTED_MAX))
+                  .then(
                       () -> {
                         rsf.reassemble(fragments[0], true, false);
                         fragments[0].release();
                       })
+                  .then(
+                      () ->
+                          // state machine check
+                          Assertions.assertThat(rsf.requested)
+                              .isEqualTo(MASK_REQUESTED_MAX | FLAG_REASSEMBLY))
                   .then(
                       () -> {
                         rsf.reassemble(fragments[1], true, false);
                         fragments[1].release();
                       })
                   .then(
+                      () ->
+                          // state machine check
+                          Assertions.assertThat(rsf.requested)
+                              .isEqualTo(MASK_REQUESTED_MAX | FLAG_REASSEMBLY))
+                  .then(
                       () -> {
                         rsf.reassemble(fragments[2], true, false);
                         fragments[2].release();
                       })
+                  .then(
+                      () ->
+                          // state machine check
+                          Assertions.assertThat(rsf.requested)
+                              .isEqualTo(MASK_REQUESTED_MAX | FLAG_REASSEMBLY))
                   .thenRequest(1)
+                  .then(
+                      () ->
+                          // state machine check
+                          Assertions.assertThat(rsf.requested)
+                              .isEqualTo(MASK_REQUESTED_MAX | FLAG_REASSEMBLY))
                   .thenRequest(1)
+                  .then(
+                      () ->
+                          // state machine check
+                          Assertions.assertThat(rsf.requested)
+                              .isEqualTo(MASK_REQUESTED_MAX | FLAG_REASSEMBLY))
                   .then(payload::release)
                   .thenCancel()
                   .verifyLater();
 
           stepVerifier.verify();
+          // state machine check
+          Assertions.assertThat(rsf.requested).isEqualTo(STATE_TERMINATED);
 
           Assertions.assertThat(fragments).allMatch(bb -> bb.refCnt() == 0);
 
@@ -488,6 +680,36 @@ public class RequestStreamFluxTest {
         });
   }
 
+  /**
+   * State Machine check with fragmentation of the first payload. Ensure migration from
+   *
+   * <pre>
+   * UNSUBSCRIBED -> SUBSCRIBED
+   * SUBSCRIBED -> REQUESTED(1) -> REQUESTED(0)
+   * </pre>
+   *
+   * And then for the following cases:
+   *
+   * <pre>
+   * [0]: REQUESTED(0) -> REQUESTED(MAX) (with onNext and few extra request(1) which should not affect state anyhow and should not sent any extra frames)
+   *      REQUESTED(MAX) -> TERMINATED
+   *
+   * [1]: REQUESTED(0) -> REQUESTED(MAX) (with onComplete rightaway)
+   *      REQUESTED(MAX) -> TERMINATED
+   *
+   * [2]: REQUESTED(0) -> REQUESTED(MAX) (with onError rightaway)
+   *      REQUESTED(MAX) -> TERMINATED
+   *
+   * [3]: REQUESTED(0) -> REASSEMBLY
+   *      REASSEMBLY -> REASSEMBLY && REQUESTED(MAX)
+   *      REASSEMBLY && REQUESTED(MAX) -> REQUESTED(MAX)
+   *      REQUESTED(MAX) -> TERMINATED
+   *
+   * [4]: REQUESTED(0) -> REQUESTED(MAX)
+   *      REQUESTED(MAX) -> REASSEMBLY && REQUESTED(MAX)
+   *      REASSEMBLY && REQUESTED(MAX) -> TERMINATED (because of cancel() invocation)
+   * </pre>
+   */
   @ParameterizedTest
   @MethodSource("frameShouldBeSentOnFirstRequestResponses")
   public void frameFragmentsShouldBeSentOnFirstRequest(
@@ -513,6 +735,8 @@ public class RequestStreamFluxTest {
             sender,
             PayloadDecoder.ZERO_COPY);
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_UNSUBSCRIBED);
     Assertions.assertThat(activeStreams).isEmpty();
 
     transformer
@@ -609,8 +833,14 @@ public class RequestStreamFluxTest {
           .hasStreamId(1);
     }
     Assertions.assertThat(sender).isEmpty();
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
   }
 
+  /**
+   * Case which ensures that if Payload has incorrect refCnt, the flux ends up with an appropriate
+   * error
+   */
   @ParameterizedTest
   @MethodSource("shouldErrorOnIncorrectRefCntInGivenPayloadSource")
   public void shouldErrorOnIncorrectRefCntInGivenPayload(Consumer<RequestStreamFlux> monoConsumer) {
@@ -630,12 +860,16 @@ public class RequestStreamFluxTest {
             sender,
             PayloadDecoder.ZERO_COPY);
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_UNSUBSCRIBED);
     Assertions.assertThat(activeStreams).isEmpty();
 
     monoConsumer.accept(requestStreamFlux);
 
     Assertions.assertThat(activeStreams).isEmpty();
     Assertions.assertThat(sender).isEmpty();
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
   }
 
   static Stream<Consumer<RequestStreamFlux>> shouldErrorOnIncorrectRefCntInGivenPayloadSource() {
@@ -650,6 +884,10 @@ public class RequestStreamFluxTest {
                 .isInstanceOf(IllegalReferenceCountException.class));
   }
 
+  /**
+   * Ensures that if Payload is release right after the subscription, the first request will exponse
+   * the error immediatelly and no frame will be sent to the remote party
+   */
   @Test
   public void shouldErrorOnIncorrectRefCntInGivenPayloadLatePhase() {
     final UnboundedProcessor<ByteBuf> sender = new UnboundedProcessor<>();
@@ -667,19 +905,36 @@ public class RequestStreamFluxTest {
             sender,
             PayloadDecoder.ZERO_COPY);
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_UNSUBSCRIBED);
     Assertions.assertThat(activeStreams).isEmpty();
 
     StepVerifier.create(requestStreamFlux, 0)
         .expectSubscription()
+        .then(
+            () ->
+                // state machine check
+                Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_SUBSCRIBED))
         .then(payload::release)
         .thenRequest(1)
+        .then(
+            () ->
+                // state machine check
+                Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED))
         .expectError(IllegalReferenceCountException.class)
         .verify();
 
     Assertions.assertThat(activeStreams).isEmpty();
     Assertions.assertThat(sender).isEmpty();
+
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
   }
 
+  /**
+   * Ensures that if Payload is release right after the subscription, the first request will expose
+   * the error immediately and no frame will be sent to the remote party
+   */
   @Test
   public void shouldErrorOnIncorrectRefCntInGivenPayloadLatePhaseWithFragmentation() {
     final UnboundedProcessor<ByteBuf> sender = new UnboundedProcessor<>();
@@ -702,19 +957,35 @@ public class RequestStreamFluxTest {
             sender,
             PayloadDecoder.ZERO_COPY);
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_UNSUBSCRIBED);
     Assertions.assertThat(activeStreams).isEmpty();
 
     StepVerifier.create(requestStreamFlux, 0)
         .expectSubscription()
+        .then(
+            () ->
+                // state machine check
+                Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_SUBSCRIBED))
         .then(payload::release)
         .thenRequest(1)
+        .then(
+            () ->
+                // state machine check
+                Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED))
         .expectError(IllegalReferenceCountException.class)
         .verify();
 
     Assertions.assertThat(activeStreams).isEmpty();
     Assertions.assertThat(sender).isEmpty();
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
   }
 
+  /**
+   * Ensures that if the given payload is exits 16mb size with disabled fragmentation, than the
+   * appropriate validation happens and a corresponding error will be propagagted to the subscriber
+   */
   @ParameterizedTest
   @MethodSource("shouldErrorIfFragmentExitsAllowanceIfFragmentationDisabledSource")
   public void shouldErrorIfFragmentExitsAllowanceIfFragmentationDisabled(
@@ -740,6 +1011,8 @@ public class RequestStreamFluxTest {
             sender,
             PayloadDecoder.ZERO_COPY);
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_UNSUBSCRIBED);
     Assertions.assertThat(activeStreams).isEmpty();
 
     monoConsumer.accept(requestStreamFlux);
@@ -748,14 +1021,20 @@ public class RequestStreamFluxTest {
 
     Assertions.assertThat(activeStreams).isEmpty();
     Assertions.assertThat(sender).isEmpty();
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
   }
 
   static Stream<Consumer<RequestStreamFlux>>
       shouldErrorIfFragmentExitsAllowanceIfFragmentationDisabledSource() {
     return Stream.of(
         (s) ->
-            StepVerifier.create(s)
+            StepVerifier.create(s, 0)
                 .expectSubscription()
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(s.requested).isEqualTo(STATE_TERMINATED))
                 .consumeErrorWith(
                     t ->
                         Assertions.assertThat(t)
@@ -768,6 +1047,11 @@ public class RequestStreamFluxTest {
                 .isInstanceOf(IllegalArgumentException.class));
   }
 
+  /**
+   * Ensures that the interactions check and respect rsocket availability (such as leasing) and
+   * propagate an error to the final subscriber. No frame should be sent. Check should happens
+   * exactly on the first request.
+   */
   @ParameterizedTest
   @MethodSource("shouldErrorIfNoAvailabilitySource")
   public void shouldErrorIfNoAvailability(Consumer<RequestStreamFlux> monoConsumer) {
@@ -786,6 +1070,8 @@ public class RequestStreamFluxTest {
             sender,
             PayloadDecoder.ZERO_COPY);
 
+    // state machine check
+    Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_UNSUBSCRIBED);
     Assertions.assertThat(activeStreams).isEmpty();
 
     monoConsumer.accept(requestStreamFlux);
@@ -798,8 +1084,17 @@ public class RequestStreamFluxTest {
   static Stream<Consumer<RequestStreamFlux>> shouldErrorIfNoAvailabilitySource() {
     return Stream.of(
         (s) ->
-            StepVerifier.create(s)
+            StepVerifier.create(s, 0)
                 .expectSubscription()
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(s.requested).isEqualTo(STATE_SUBSCRIBED))
+                .thenRequest(1)
+                .then(
+                    () ->
+                        // state machine check
+                        Assertions.assertThat(s.requested).isEqualTo(STATE_TERMINATED))
                 .consumeErrorWith(
                     t ->
                         Assertions.assertThat(t)
@@ -811,6 +1106,12 @@ public class RequestStreamFluxTest {
                 .hasMessage("test")
                 .isInstanceOf(RuntimeException.class));
   }
+
+  /*
+   * +--------------------------------+
+   * |       Racing Test Cases        |
+   * +--------------------------------+
+   */
 
   @Test
   public void shouldSubscribeExactlyOnce1() {
@@ -1419,8 +1720,7 @@ public class RequestStreamFluxTest {
       Assertions.assertThat(payload.refCnt()).isZero();
       Assertions.assertThat(activeStreams).isEmpty();
 
-      Assertions.assertThat(requestStreamFlux.requested)
-          .isEqualTo(RequestStreamFlux.STATE_TERMINATED);
+      Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
 
       requestStreamFlux.onNext(response);
       Assertions.assertThat(response.refCnt()).isZero();
@@ -1496,8 +1796,7 @@ public class RequestStreamFluxTest {
       Assertions.assertThat(payload.refCnt()).isZero();
       Assertions.assertThat(activeStreams).isEmpty();
 
-      Assertions.assertThat(requestStreamFlux.requested)
-          .isEqualTo(RequestStreamFlux.STATE_TERMINATED);
+      Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
 
       requestStreamFlux.onNext(response);
       Assertions.assertThat(response.refCnt()).isZero();
@@ -1575,8 +1874,7 @@ public class RequestStreamFluxTest {
       Assertions.assertThat(payload.refCnt()).isZero();
       Assertions.assertThat(activeStreams).isEmpty();
 
-      Assertions.assertThat(requestStreamFlux.requested)
-          .isEqualTo(RequestStreamFlux.STATE_TERMINATED);
+      Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
 
       requestStreamFlux.onNext(response);
       Assertions.assertThat(response.refCnt()).isZero();
@@ -1650,8 +1948,7 @@ public class RequestStreamFluxTest {
       Assertions.assertThat(payload.refCnt()).isZero();
       Assertions.assertThat(activeStreams).isEmpty();
 
-      Assertions.assertThat(requestStreamFlux.requested)
-          .isEqualTo(RequestStreamFlux.STATE_TERMINATED);
+      Assertions.assertThat(requestStreamFlux.requested).isEqualTo(STATE_TERMINATED);
 
       requestStreamFlux.onNext(response);
       Assertions.assertThat(response.refCnt()).isZero();

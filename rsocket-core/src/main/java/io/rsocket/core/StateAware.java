@@ -1,4 +1,4 @@
-package io.rsocket;
+package io.rsocket.core;
 
 interface StateAware {
 

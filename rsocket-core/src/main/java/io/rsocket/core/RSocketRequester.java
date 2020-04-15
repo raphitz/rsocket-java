@@ -16,7 +16,6 @@
 
 package io.rsocket.core;
 
-import static io.rsocket.core.PayloadValidationUtils.INVALID_PAYLOAD_ERROR_MESSAGE;
 import static io.rsocket.keepalive.KeepAliveSupport.ClientKeepAliveSupport;
 import static io.rsocket.keepalive.KeepAliveSupport.KeepAlive;
 
@@ -42,7 +41,6 @@ import io.rsocket.keepalive.KeepAliveHandler;
 import io.rsocket.keepalive.KeepAliveSupport;
 import io.rsocket.lease.RequesterLeaseHandler;
 import java.nio.channels.ClosedChannelException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -298,7 +296,7 @@ class RSocketRequester implements RSocket, StateAware {
           }
         case NEXT:
           boolean hasFollows = FrameHeaderFlyweight.hasFollows(frame);
-          if (receiver.isReassemblingNow() || hasFollows) {
+          if (hasFollows || receiver.isReassemblingNow()) {
             receiver.reassemble(frame, hasFollows, false);
           } else {
             receiver.onNext(payloadDecoder.apply(frame));
@@ -391,14 +389,6 @@ class RSocketRequester implements RSocket, StateAware {
 
     sendProcessor.dispose();
     errorConsumer.accept(e);
-  }
-
-  private void removeStreamReceiver(int streamId) {
-    /*on termination receivers are explicitly cleared to avoid removing from map while iterating over one
-    of its views*/
-    if (terminationError == null) {
-      receivers.remove(streamId);
-    }
   }
 
   private void handleSendProcessorError(Throwable t) {

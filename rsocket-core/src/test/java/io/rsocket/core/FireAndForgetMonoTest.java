@@ -1,4 +1,4 @@
-package io.rsocket;
+package io.rsocket.core;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -6,6 +6,8 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.CharsetUtil;
 import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.collection.IntObjectMap;
+import io.rsocket.FrameAssert;
+import io.rsocket.Payload;
 import io.rsocket.frame.FrameLengthFlyweight;
 import io.rsocket.frame.FrameType;
 import io.rsocket.internal.SynchronizedIntObjectHashMap;
@@ -33,11 +35,9 @@ public class FireAndForgetMonoTest {
     StepVerifier.setDefaultTimeout(Duration.ofSeconds(2));
   }
 
-
   /**
-   * General StateMachine transition test.
-   * No Fragmentation enabled
-   * In this test we check that the given instance of FireAndForgetMono subscribes, and then sends frame immediately
+   * General StateMachine transition test. No Fragmentation enabled In this test we check that the
+   * given instance of FireAndForgetMono subscribes, and then sends frame immediately
    */
   @ParameterizedTest
   @MethodSource("frameSent")
@@ -86,9 +86,9 @@ public class FireAndForgetMonoTest {
   }
 
   /**
-   * General StateMachine transition test.
-   * Fragmentation enabled
-   * In this test we check that the given instance of FireAndForgetMono subscribes, and then sends all fragments as a separate frame immediately
+   * General StateMachine transition test. Fragmentation enabled In this test we check that the
+   * given instance of FireAndForgetMono subscribes, and then sends all fragments as a separate
+   * frame immediately
    */
   @ParameterizedTest
   @MethodSource("frameSent")
@@ -188,11 +188,9 @@ public class FireAndForgetMonoTest {
         FireAndForgetMono::block);
   }
 
-
   /**
-   * RefCnt validation test.
-   * Should send error if RefCnt is incorrect and frame has already been released
-   * Note: ONCE state should be 0
+   * RefCnt validation test. Should send error if RefCnt is incorrect and frame has already been
+   * released Note: ONCE state should be 0
    */
   @ParameterizedTest
   @MethodSource("shouldErrorOnIncorrectRefCntInGivenPayloadSource")
@@ -235,8 +233,8 @@ public class FireAndForgetMonoTest {
   }
 
   /**
-   * Check that proper payload size validation is enabled so in case payload fragmentation
-   * is disabled we will not send anything bigger that 16MB (see specification for MAX frame size)
+   * Check that proper payload size validation is enabled so in case payload fragmentation is
+   * disabled we will not send anything bigger that 16MB (see specification for MAX frame size)
    */
   @ParameterizedTest
   @MethodSource("shouldErrorIfFragmentExitsAllowanceIfFragmentationDisabledSource")
@@ -293,10 +291,9 @@ public class FireAndForgetMonoTest {
   }
 
   /**
-   * Ensures that frame will not be sent if we dont have availability for that.
-   * Options:
-   * 1. RSocket disposed / Connection Error, so all racing on existing interactions should be terminated as well
-   * 2. RSocket tries to use lease and end-ups with no available leases
+   * Ensures that frame will not be sent if we dont have availability for that. Options: 1. RSocket
+   * disposed / Connection Error, so all racing on existing interactions should be terminated as
+   * well 2. RSocket tries to use lease and end-ups with no available leases
    */
   @ParameterizedTest
   @MethodSource("shouldErrorIfNoAvailabilitySource")
@@ -344,6 +341,7 @@ public class FireAndForgetMonoTest {
                 .isInstanceOf(RuntimeException.class));
   }
 
+  /** Ensures single subscription happens in case of racing */
   @Test
   public void shouldSubscribeExactlyOnce1() {
     final UnboundedProcessor<ByteBuf> sender = new UnboundedProcessor<>();

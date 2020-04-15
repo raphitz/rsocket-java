@@ -1,10 +1,11 @@
-package io.rsocket;
+package io.rsocket.core;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.collection.IntObjectMap;
+import io.rsocket.RSocket;
 import io.rsocket.fragmentation.ReassemblyUtils;
 import io.rsocket.frame.decoder.PayloadDecoder;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;

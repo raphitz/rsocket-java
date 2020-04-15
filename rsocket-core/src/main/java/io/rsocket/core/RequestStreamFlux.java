@@ -1,4 +1,4 @@
-package io.rsocket;
+package io.rsocket.core;
 
 import static io.rsocket.fragmentation.FragmentationUtils.isFragmentable;
 import static io.rsocket.fragmentation.FragmentationUtils.isValid;
@@ -10,6 +10,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.collection.IntObjectMap;
+import io.rsocket.Payload;
 import io.rsocket.fragmentation.FragmentationUtils;
 import io.rsocket.fragmentation.ReassemblyUtils;
 import io.rsocket.frame.CancelFrameFlyweight;
@@ -168,6 +169,7 @@ final class RequestStreamFlux extends Flux<Payload> implements Reassemble<Payloa
       if (p.refCnt() <= 0) {
         this.requested = STATE_TERMINATED;
         Operators.error(actual, new IllegalReferenceCountException(0));
+        return;
       }
 
       this.actual = actual;

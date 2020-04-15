@@ -1,4 +1,4 @@
-package io.rsocket;
+package io.rsocket.core;
 
 import java.util.function.Consumer;
 import org.reactivestreams.Subscription;

@@ -1,4 +1,4 @@
-package io.rsocket;
+package io.rsocket.core;
 
 import static io.rsocket.fragmentation.FragmentationUtils.isFragmentable;
 import static io.rsocket.fragmentation.FragmentationUtils.isValid;
@@ -10,6 +10,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.collection.IntObjectMap;
+import io.rsocket.Payload;
 import io.rsocket.fragmentation.FragmentationUtils;
 import io.rsocket.fragmentation.ReassemblyUtils;
 import io.rsocket.frame.CancelFrameFlyweight;
@@ -156,31 +157,33 @@ final class RequestResponseMono extends Mono<Payload> implements Reassemble<Payl
   public void subscribe(CoreSubscriber<? super Payload> actual) {
     final Payload p = this.payload;
 
-    if (p.refCnt() > 0) {
-      if (this.state == STATE_UNSUBSCRIBED
-          && STATE.compareAndSet(this, STATE_UNSUBSCRIBED, STATE_SUBSCRIBED)) {
-        this.actual = actual;
+    if (this.state == STATE_UNSUBSCRIBED
+        && STATE.compareAndSet(this, STATE_UNSUBSCRIBED, STATE_SUBSCRIBED)) {
+      this.actual = actual;
 
-        final int mtu = this.mtu;
-        final boolean hasMetadata = p.hasMetadata();
-        final ByteBuf data = p.data();
-        final ByteBuf metadata = p.metadata();
-
-        if (hasMetadata ? !isValid(mtu, data, metadata) : !isValid(mtu, data)) {
-          Operators.error(actual, new IllegalArgumentException("Too Big Payload size"));
-          p.release();
-          return;
-        }
-
-        // call onSubscribe if has value in the result or no result delivered so far
-        actual.onSubscribe(this);
-      } else {
-        Operators.error(
-            actual,
-            new IllegalStateException("RequestResponseMono allows only a single Subscriber"));
+      if (p.refCnt() <= 0) {
+        this.state = STATE_TERMINATED;
+        Operators.error(actual, new IllegalReferenceCountException(0));
+        return;
       }
+
+      final int mtu = this.mtu;
+      final boolean hasMetadata = p.hasMetadata();
+      final ByteBuf data = p.data();
+      final ByteBuf metadata = p.metadata();
+
+      if (hasMetadata ? !isValid(mtu, data, metadata) : !isValid(mtu, data)) {
+        this.state = STATE_TERMINATED;
+        Operators.error(actual, new IllegalArgumentException("Too Big Payload size"));
+        p.release();
+        return;
+      }
+
+      // call onSubscribe if has value in the result or no result delivered so far
+      actual.onSubscribe(this);
     } else {
-      Operators.error(actual, new IllegalReferenceCountException(0));
+      Operators.error(
+          actual, new IllegalStateException("RequestResponseMono allows only a single Subscriber"));
     }
   }
 

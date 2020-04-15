@@ -1,4 +1,4 @@
-package io.rsocket;
+package io.rsocket.core;
 
 import io.netty.buffer.ByteBuf;
 import org.reactivestreams.Subscription;
