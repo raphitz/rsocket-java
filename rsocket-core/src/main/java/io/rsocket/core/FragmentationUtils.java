@@ -1,4 +1,4 @@
-package io.rsocket.fragmentation;
+package io.rsocket.core;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -12,66 +12,56 @@ import io.rsocket.frame.RequestFireAndForgetFrameFlyweight;
 import io.rsocket.frame.RequestResponseFrameFlyweight;
 import io.rsocket.frame.RequestStreamFrameFlyweight;
 
-public class FragmentationUtils {
+class FragmentationUtils {
+  static final int FRAME_OFFSET = // 9 bytes in total
+      FrameLengthFlyweight.FRAME_LENGTH_SIZE // includes encoded frame length bytes size
+          + FrameHeaderFlyweight.size(); // includes encoded frame headers info bytes size
+  static final int FRAME_OFFSET_WITH_METADATA = // 12 bytes in total
+      FRAME_OFFSET
+          + FrameLengthFlyweight.FRAME_LENGTH_SIZE; // include encoded metadata length bytes size
 
-  public static boolean isValid(int mtu, ByteBuf data) {
-    return mtu > 0
-        || (((FrameHeaderFlyweight.size()
-                    + data.readableBytes()
-                    + FrameLengthFlyweight.FRAME_LENGTH_SIZE)
-                & ~FrameLengthFlyweight.FRAME_LENGTH_MASK)
-            == 0);
-  }
+  static final int FRAME_OFFSET_WITH_INITIAL_REQUEST_N = // 13 bytes in total
+      FRAME_OFFSET + Integer.BYTES; // includes extra space for initialRequestN bytes size
+  static final int FRAME_OFFSET_WITH_METADATA_AND_INITIAL_REQUEST_N = // 16 bytes in total
+      FRAME_OFFSET_WITH_METADATA
+          + Integer.BYTES; // includes extra space for initialRequestN bytes size
 
-  public static boolean isValid(int mtu, ByteBuf data, ByteBuf metadata) {
-    return mtu > 0
-        || (((FrameHeaderFlyweight.size()
-                    + FrameLengthFlyweight.FRAME_LENGTH_SIZE
-                    + FrameHeaderFlyweight.size()
-                    + data.readableBytes()
-                    + metadata.readableBytes())
-                & ~FrameLengthFlyweight.FRAME_LENGTH_MASK)
-            == 0);
-  }
-
-  public static boolean isFragmentable(int mtu, ByteBuf data) {
-    if (mtu > 0) {
-      int remaining = mtu - FrameHeaderFlyweight.size() - FrameLengthFlyweight.FRAME_LENGTH_SIZE;
-
-      return remaining < data.readableBytes();
+  static boolean isFragmentable(
+      int mtu, ByteBuf data, ByteBuf metadata, boolean hasMetadata, boolean hasInitialRequestN) {
+    if (mtu == 0) {
+      return false;
     }
 
-    return false;
-  }
-
-  public static boolean isFragmentable(int mtu, ByteBuf data, ByteBuf metadata) {
-    if (mtu > 0) {
+    if (hasMetadata) {
       int remaining =
           mtu
-              - FrameHeaderFlyweight.size()
-              - FrameHeaderFlyweight.size()
-              - FrameLengthFlyweight.FRAME_LENGTH_SIZE;
+              - (hasInitialRequestN
+                  ? FRAME_OFFSET_WITH_METADATA_AND_INITIAL_REQUEST_N
+                  : FRAME_OFFSET_WITH_METADATA);
 
-      return remaining < (metadata.readableBytes() + data.readableBytes());
+      return (metadata.readableBytes() + data.readableBytes()) > remaining;
+    } else {
+      int remaining =
+          mtu - (hasInitialRequestN ? FRAME_OFFSET_WITH_INITIAL_REQUEST_N : FRAME_OFFSET);
+
+      return data.readableBytes() > remaining;
     }
-
-    return false;
   }
 
-  public static ByteBuf encodeFollowsFragment(
+  static ByteBuf encodeFollowsFragment(
       ByteBufAllocator allocator,
       int mtu,
       int streamId,
       boolean complete,
       ByteBuf metadata,
       ByteBuf data) {
-    // subtract the header bytes
-    int remaining = mtu - FrameHeaderFlyweight.size();
+    // subtract the header bytes + frame length size
+    int remaining = mtu - FRAME_OFFSET;
 
     ByteBuf metadataFragment = null;
     if (metadata.isReadable()) {
       // subtract the metadata frame length
-      remaining -= 3;
+      remaining -= FrameLengthFlyweight.FRAME_LENGTH_SIZE;
       int r = Math.min(remaining, metadata.readableBytes());
       remaining -= r;
       metadataFragment = metadata.readRetainedSlice(r);
@@ -88,20 +78,20 @@ public class FragmentationUtils {
         allocator, streamId, follows, (!follows && complete), true, metadataFragment, dataFragment);
   }
 
-  public static ByteBuf encodeFirstFragment(
+  static ByteBuf encodeFirstFragment(
       ByteBufAllocator allocator,
       int mtu,
       FrameType frameType,
       int streamId,
       ByteBuf metadata,
       ByteBuf data) {
-    // subtract the header bytes
-    int remaining = mtu - FrameHeaderFlyweight.size();
+    // subtract the header bytes + frame length size
+    int remaining = mtu - FRAME_OFFSET;
 
     ByteBuf metadataFragment = null;
     if (metadata.isReadable()) {
       // subtract the metadata frame length
-      remaining -= 3;
+      remaining -= FrameLengthFlyweight.FRAME_LENGTH_SIZE;
       int r = Math.min(remaining, metadata.readableBytes());
       remaining -= r;
       metadataFragment = metadata.readRetainedSlice(r);
@@ -135,7 +125,7 @@ public class FragmentationUtils {
     }
   }
 
-  public static ByteBuf encodeFirstFragment(
+  static ByteBuf encodeFirstFragment(
       ByteBufAllocator allocator,
       int mtu,
       int initialRequestN,
@@ -143,17 +133,13 @@ public class FragmentationUtils {
       int streamId,
       ByteBuf metadata,
       ByteBuf data) {
-    // subtract the header bytes
-    int remaining =
-        mtu
-            - FrameHeaderFlyweight.size()
-            // substract the initial request n
-            - Integer.BYTES;
+    // subtract the header bytes + frame length bytes + initial requestN bytes
+    int remaining = mtu - FRAME_OFFSET_WITH_INITIAL_REQUEST_N;
 
     ByteBuf metadataFragment = null;
     if (metadata.isReadable()) {
       // subtract the metadata frame length
-      remaining -= 3;
+      remaining -= FrameLengthFlyweight.FRAME_LENGTH_SIZE;
       int r = Math.min(remaining, metadata.readableBytes());
       remaining -= r;
       metadataFragment = metadata.readRetainedSlice(r);

@@ -16,7 +16,6 @@ import io.netty.util.collection.IntObjectMap;
 import io.rsocket.FrameAssert;
 import io.rsocket.Payload;
 import io.rsocket.exceptions.ApplicationErrorException;
-import io.rsocket.fragmentation.FragmentationUtils;
 import io.rsocket.frame.FrameLengthFlyweight;
 import io.rsocket.frame.FrameType;
 import io.rsocket.frame.decoder.PayloadDecoder;

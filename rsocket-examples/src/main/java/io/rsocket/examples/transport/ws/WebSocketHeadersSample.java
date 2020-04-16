@@ -16,7 +16,6 @@
 
 package io.rsocket.examples.transport.ws;
 
-import io.netty.buffer.ByteBufAllocator;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.rsocket.AbstractRSocket;
 import io.rsocket.ConnectionSetupPayload;
@@ -26,7 +25,6 @@ import io.rsocket.RSocket;
 import io.rsocket.SocketAcceptor;
 import io.rsocket.core.RSocketConnector;
 import io.rsocket.core.RSocketServer;
-import io.rsocket.fragmentation.ReassemblyDuplexConnection;
 import io.rsocket.frame.decoder.PayloadDecoder;
 import io.rsocket.transport.ServerTransport;
 import io.rsocket.transport.netty.WebsocketDuplexConnection;
@@ -64,10 +62,7 @@ public class WebSocketHeadersSample {
                         (in, out) -> {
                           if (in.headers().containsValue("Authorization", "test", true)) {
                             DuplexConnection connection =
-                                new ReassemblyDuplexConnection(
-                                    new WebsocketDuplexConnection((Connection) in),
-                                    ByteBufAllocator.DEFAULT,
-                                    false);
+                                new WebsocketDuplexConnection((Connection) in);
                             return acceptor.apply(connection).then(out.neverComplete());
                           }
 
@@ -97,7 +92,7 @@ public class WebSocketHeadersSample {
     Flux.range(0, 100)
         .concatMap(i -> socket.fireAndForget(payload1.retain()))
         //        .doOnNext(p -> {
-        ////            System.out.println(p.getDataUtf8());
+        //            System.out.println(p.getDataUtf8());
         //            p.release();
         //        })
         .blockLast();

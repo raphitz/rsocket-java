@@ -19,7 +19,8 @@ package io.rsocket.test;
 import io.rsocket.Closeable;
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
-import io.rsocket.RSocketFactory;
+import io.rsocket.core.RSocketConnector;
+import io.rsocket.core.RSocketServer;
 import io.rsocket.transport.ClientTransport;
 import io.rsocket.transport.ServerTransport;
 import io.rsocket.util.DefaultPayload;
@@ -381,19 +382,16 @@ public interface FragmentationTransportTest {
       T address = addressSupplier.get();
 
       server =
-          RSocketFactory.receive()
+          RSocketServer.create((setup, sendingSocket) -> Mono.just(new TestRSocket(data, metadata)))
               .fragment(128)
-              .acceptor((setup, sendingSocket) -> Mono.just(new TestRSocket(data, metadata)))
-              .transport(serverTransportSupplier.apply(address))
-              .start()
+              .bind(serverTransportSupplier.apply(address))
               .block();
 
       client =
-          RSocketFactory.connect()
-              .keepAlive(Duration.ZERO, Duration.ZERO, 1)
+          RSocketConnector.create()
+              .keepAlive(Duration.ofDays(Long.MAX_VALUE), Duration.ofDays(Long.MAX_VALUE))
               .fragment(64)
-              .transport(clientTransportSupplier.apply(address, server))
-              .start()
+              .connect(clientTransportSupplier.apply(address, server))
               .doOnError(Throwable::printStackTrace)
               .block();
     }

@@ -1,6 +1,6 @@
 package io.rsocket.core;
 
-import static io.rsocket.fragmentation.FragmentationUtils.isValid;
+import static io.rsocket.core.PayloadValidationUtils.isValid;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -64,7 +64,7 @@ final class MetadataPushMono extends Mono<Void> implements Scannable {
                 actual,
                 new IllegalArgumentException(
                     "Found readable data in Payload but expected present metadata only"));
-          } else if (!isValid(0, metadata)) {
+          } else if (!isValid(0, metadata, null, false, false)) {
             Operators.error(
                 actual,
                 new IllegalArgumentException(
@@ -125,7 +125,7 @@ final class MetadataPushMono extends Mono<Void> implements Scannable {
             p.release();
             throw new IllegalArgumentException(
                 "Found readable data in Payload but expected present metadata only");
-          } else if (!isValid(0, metadata)) {
+          } else if (!isValid(0, metadata, null, false, false)) {
             p.release();
             throw new IllegalArgumentException(
                 "Too Big Payload size"

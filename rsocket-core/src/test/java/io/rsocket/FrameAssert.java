@@ -11,6 +11,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.CharsetUtil;
 import io.rsocket.frame.ByteBufRepresentation;
 import io.rsocket.frame.FrameHeaderFlyweight;
+import io.rsocket.frame.FrameLengthFlyweight;
 import io.rsocket.frame.FrameType;
 import io.rsocket.frame.MetadataPushFrameFlyweight;
 import io.rsocket.frame.PayloadFrameFlyweight;
@@ -24,7 +25,6 @@ import org.assertj.core.internal.Failures;
 import org.assertj.core.internal.Objects;
 
 public class FrameAssert extends AbstractAssert<FrameAssert, ByteBuf> {
-
   public static FrameAssert assertThat(ByteBuf frame) {
     return new FrameAssert(frame);
   }

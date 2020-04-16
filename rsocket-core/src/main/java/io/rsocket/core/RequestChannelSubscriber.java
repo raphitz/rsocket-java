@@ -1,7 +1,7 @@
 package io.rsocket.core;
 
-import static io.rsocket.fragmentation.FragmentationUtils.isFragmentable;
-import static io.rsocket.fragmentation.FragmentationUtils.isValid;
+import static io.rsocket.core.FragmentationUtils.isFragmentable;
+import static io.rsocket.core.PayloadValidationUtils.isValid;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -12,8 +12,6 @@ import io.netty.util.ReferenceCountUtil;
 import io.netty.util.collection.IntObjectMap;
 import io.rsocket.Payload;
 import io.rsocket.ResponderRSocket;
-import io.rsocket.fragmentation.FragmentationUtils;
-import io.rsocket.fragmentation.ReassemblyUtils;
 import io.rsocket.frame.CancelFrameFlyweight;
 import io.rsocket.frame.ErrorFrameFlyweight;
 import io.rsocket.frame.FrameType;
@@ -492,7 +490,7 @@ public class RequestChannelSubscriber extends Flux<Payload> implements Reassembl
         final ByteBuf data = p.data();
         final ByteBuf metadata = p.metadata();
 
-        if (hasMetadata ? !isValid(mtu, data, metadata) : !isValid(mtu, data)) {
+        if (!isValid(mtu, data, metadata, hasMetadata, false)) {
           parent.cancel();
           p.release();
 
@@ -506,9 +504,7 @@ public class RequestChannelSubscriber extends Flux<Payload> implements Reassembl
           return;
         }
 
-        if (hasMetadata
-            ? isFragmentable(mtu, data, metadata)
-            : isFragmentable(mtu, data, metadata)) {
+        if (isFragmentable(mtu, data, metadata, hasMetadata, false)) {
           final ByteBuf slicedData = data.slice();
           final ByteBuf slicedMetadata = hasMetadata ? metadata.slice() : Unpooled.EMPTY_BUFFER;
 

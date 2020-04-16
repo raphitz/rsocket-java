@@ -20,7 +20,35 @@ class PayloadValidationUtilsTest {
     ThreadLocalRandom.current().nextBytes(data);
     final Payload payload = DefaultPayload.create(data);
 
-    Assertions.assertThat(PayloadValidationUtils.isValid(0, payload)).isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), false))
+        .isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), true))
+        .isFalse();
+  }
+
+  @Test
+  void shouldBeValidFrameWithNoFragmentation1() {
+    byte[] data =
+        new byte
+            [FrameLengthFlyweight.FRAME_LENGTH_MASK
+                - FrameLengthFlyweight.FRAME_LENGTH_SIZE
+                - Integer.BYTES
+                - FrameHeaderFlyweight.size()];
+    ThreadLocalRandom.current().nextBytes(data);
+    final Payload payload = DefaultPayload.create(data);
+
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), false))
+        .isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), true))
+        .isTrue();
   }
 
   @Test
@@ -34,7 +62,36 @@ class PayloadValidationUtilsTest {
     ThreadLocalRandom.current().nextBytes(data);
     final Payload payload = DefaultPayload.create(data);
 
-    Assertions.assertThat(PayloadValidationUtils.isValid(0, payload)).isFalse();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), false))
+        .isFalse();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), true))
+        .isFalse();
+  }
+
+  @Test
+  void shouldBeHalfValidFrameWithNoFragmentation() {
+    byte[] data =
+        new byte
+            [FrameLengthFlyweight.FRAME_LENGTH_MASK
+                - FrameLengthFlyweight.FRAME_LENGTH_SIZE
+                - FrameHeaderFlyweight.size()
+                - Integer.BYTES
+                + 1];
+    ThreadLocalRandom.current().nextBytes(data);
+    final Payload payload = DefaultPayload.create(data);
+
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), false))
+        .isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), true))
+        .isFalse();
   }
 
   @Test
@@ -44,13 +101,44 @@ class PayloadValidationUtilsTest {
         new byte
             [FrameLengthFlyweight.FRAME_LENGTH_MASK / 2
                 - FrameLengthFlyweight.FRAME_LENGTH_SIZE
-                - FrameHeaderFlyweight.size()
+                - FrameLengthFlyweight.FRAME_LENGTH_SIZE
                 - FrameHeaderFlyweight.size()];
     ThreadLocalRandom.current().nextBytes(data);
     ThreadLocalRandom.current().nextBytes(metadata);
     final Payload payload = DefaultPayload.create(data, metadata);
 
-    Assertions.assertThat(PayloadValidationUtils.isValid(0, payload)).isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), false))
+        .isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), true))
+        .isFalse();
+  }
+
+  @Test
+  void shouldBeValidFrameWithNoFragmentation01() {
+    byte[] metadata = new byte[FrameLengthFlyweight.FRAME_LENGTH_MASK / 2];
+    byte[] data =
+        new byte
+            [FrameLengthFlyweight.FRAME_LENGTH_MASK / 2
+                - FrameLengthFlyweight.FRAME_LENGTH_SIZE
+                - FrameLengthFlyweight.FRAME_LENGTH_SIZE
+                - Integer.BYTES
+                - FrameHeaderFlyweight.size()];
+    ThreadLocalRandom.current().nextBytes(data);
+    ThreadLocalRandom.current().nextBytes(metadata);
+    final Payload payload = DefaultPayload.create(data, metadata);
+
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), false))
+        .isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), true))
+        .isTrue();
   }
 
   @Test
@@ -61,7 +149,14 @@ class PayloadValidationUtilsTest {
     ThreadLocalRandom.current().nextBytes(data);
     final Payload payload = DefaultPayload.create(data, metadata);
 
-    Assertions.assertThat(PayloadValidationUtils.isValid(0, payload)).isFalse();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), false))
+        .isFalse();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), true))
+        .isFalse();
   }
 
   @Test
@@ -72,7 +167,14 @@ class PayloadValidationUtilsTest {
     ThreadLocalRandom.current().nextBytes(data);
     final Payload payload = DefaultPayload.create(data, metadata);
 
-    Assertions.assertThat(PayloadValidationUtils.isValid(0, payload)).isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), false))
+        .isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                0, payload.data(), payload.metadata(), payload.hasMetadata(), true))
+        .isTrue();
   }
 
   @Test
@@ -83,7 +185,14 @@ class PayloadValidationUtilsTest {
     ThreadLocalRandom.current().nextBytes(data);
     final Payload payload = DefaultPayload.create(data, metadata);
 
-    Assertions.assertThat(PayloadValidationUtils.isValid(64, payload)).isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                64, payload.data(), payload.metadata(), payload.hasMetadata(), false))
+        .isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                64, payload.data(), payload.metadata(), payload.hasMetadata(), true))
+        .isTrue();
   }
 
   @Test
@@ -94,6 +203,13 @@ class PayloadValidationUtilsTest {
     ThreadLocalRandom.current().nextBytes(data);
     final Payload payload = DefaultPayload.create(data, metadata);
 
-    Assertions.assertThat(PayloadValidationUtils.isValid(64, payload)).isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                64, payload.data(), payload.metadata(), payload.hasMetadata(), false))
+        .isTrue();
+    Assertions.assertThat(
+            PayloadValidationUtils.isValid(
+                64, payload.data(), payload.metadata(), payload.hasMetadata(), true))
+        .isTrue();
   }
 }

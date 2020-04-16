@@ -1,7 +1,7 @@
 package io.rsocket.core;
 
-import static io.rsocket.fragmentation.FragmentationUtils.isFragmentable;
-import static io.rsocket.fragmentation.FragmentationUtils.isValid;
+import static io.rsocket.core.FragmentationUtils.isFragmentable;
+import static io.rsocket.core.PayloadValidationUtils.isValid;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -10,7 +10,6 @@ import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.collection.IntObjectMap;
 import io.rsocket.Payload;
-import io.rsocket.fragmentation.FragmentationUtils;
 import io.rsocket.frame.FrameType;
 import io.rsocket.frame.RequestFireAndForgetFrameFlyweight;
 import io.rsocket.internal.UnboundedProcessor;
@@ -27,8 +26,6 @@ import reactor.util.annotation.Nullable;
 final class FireAndForgetMono extends Mono<Void> implements Scannable {
 
   volatile int once;
-
-  @SuppressWarnings("rawtypes")
   static final AtomicIntegerFieldUpdater<FireAndForgetMono> ONCE =
       AtomicIntegerFieldUpdater.newUpdater(FireAndForgetMono.class, "once");
 
@@ -74,7 +71,7 @@ final class FireAndForgetMono extends Mono<Void> implements Scannable {
         final ByteBuf metadata = p.metadata();
         final int mtu = this.mtu;
 
-        if (hasMetadata ? !isValid(mtu, data, metadata) : !isValid(mtu, data)) {
+        if (!isValid(mtu, data, metadata, hasMetadata, false)) {
           Operators.error(actual, new IllegalArgumentException("Too Big Payload size"));
         } else {
           final Throwable throwable = parent.checkAvailable();
@@ -85,7 +82,7 @@ final class FireAndForgetMono extends Mono<Void> implements Scannable {
             final UnboundedProcessor<ByteBuf> sender = this.sendProcessor;
             final ByteBufAllocator allocator = this.allocator;
 
-            if (hasMetadata ? isFragmentable(mtu, data, metadata) : isFragmentable(mtu, data)) {
+            if (isFragmentable(mtu, data, metadata, hasMetadata, false)) {
               final ByteBuf slicedData = data.slice();
               final ByteBuf slicedMetadata = hasMetadata ? metadata.slice() : Unpooled.EMPTY_BUFFER;
 
@@ -146,7 +143,7 @@ final class FireAndForgetMono extends Mono<Void> implements Scannable {
       final ByteBuf metadata = p.metadata();
       final int mtu = this.mtu;
 
-      if (hasMetadata ? !isValid(mtu, data, metadata) : !isValid(mtu, data)) {
+      if (!isValid(mtu, data, metadata, hasMetadata, false)) {
         p.release();
         throw new IllegalArgumentException("Too Big Payload size");
       } else {
@@ -160,7 +157,7 @@ final class FireAndForgetMono extends Mono<Void> implements Scannable {
             final UnboundedProcessor<ByteBuf> sender = this.sendProcessor;
             final ByteBufAllocator allocator = this.allocator;
 
-            if (hasMetadata ? isFragmentable(mtu, data, metadata) : isFragmentable(mtu, data)) {
+            if (isFragmentable(mtu, data, metadata, hasMetadata, false)) {
               final ByteBuf slicedData = data.slice();
               final ByteBuf slicedMetadata = hasMetadata ? metadata.slice() : Unpooled.EMPTY_BUFFER;
 

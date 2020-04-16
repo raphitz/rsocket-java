@@ -65,8 +65,7 @@ public class WebSocketTransportIntegrationTest {
     ThreadLocalRandom.current().nextBytes(payload);
 
     ServerTransport.ConnectionAcceptor acceptor =
-        RSocketFactory.receive()
-            .acceptor(
+        RSocketServer.create(
                 (setupPayload, sendingRSocket) -> {
                   return Mono.just(
                       new AbstractRSocket() {
@@ -77,7 +76,7 @@ public class WebSocketTransportIntegrationTest {
                         }
                       });
                 })
-            .toConnectionAcceptor();
+            .asConnectionAcceptor();
 
     DisposableServer server =
         HttpServer.create()
@@ -86,11 +85,10 @@ public class WebSocketTransportIntegrationTest {
             .bindNow();
 
     RSocket rsocket =
-        RSocketFactory.connect()
-            .transport(
+        RSocketConnector.create()
+            .connect(
                 WebsocketClientTransport.create(
                     URI.create("ws://" + server.host() + ":" + server.port() + "/test")))
-            .start()
             .block();
 
     StepVerifier.create(rsocket.requestStream(DefaultPayload.create(payload)))

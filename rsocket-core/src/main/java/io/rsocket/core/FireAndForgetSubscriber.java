@@ -6,7 +6,6 @@ import io.netty.buffer.CompositeByteBuf;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.collection.IntObjectMap;
 import io.rsocket.RSocket;
-import io.rsocket.fragmentation.ReassemblyUtils;
 import io.rsocket.frame.decoder.PayloadDecoder;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.Consumer;

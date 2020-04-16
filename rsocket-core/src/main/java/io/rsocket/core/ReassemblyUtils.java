@@ -1,4 +1,4 @@
-package io.rsocket.fragmentation;
+package io.rsocket.core;
 
 import static io.rsocket.frame.FrameLengthFlyweight.FRAME_LENGTH_MASK;
 
@@ -6,10 +6,9 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.CompositeByteBuf;
 import io.rsocket.frame.FrameHeaderFlyweight;
 
-public class ReassemblyUtils {
+class ReassemblyUtils {
 
-  public static CompositeByteBuf addFollowingFrame(
-      CompositeByteBuf frames, ByteBuf followingFrame) {
+  static CompositeByteBuf addFollowingFrame(CompositeByteBuf frames, ByteBuf followingFrame) {
     if (frames.readableBytes() == 0) {
       return frames.addComponent(true, followingFrame.retain());
     }

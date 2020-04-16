@@ -1,7 +1,7 @@
 package io.rsocket.core;
 
-import static io.rsocket.fragmentation.FragmentationUtils.isFragmentable;
-import static io.rsocket.fragmentation.FragmentationUtils.isValid;
+import static io.rsocket.core.FragmentationUtils.isFragmentable;
+import static io.rsocket.core.PayloadValidationUtils.isValid;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -11,8 +11,6 @@ import io.netty.util.IllegalReferenceCountException;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.collection.IntObjectMap;
 import io.rsocket.Payload;
-import io.rsocket.fragmentation.FragmentationUtils;
-import io.rsocket.fragmentation.ReassemblyUtils;
 import io.rsocket.frame.CancelFrameFlyweight;
 import io.rsocket.frame.ErrorFrameFlyweight;
 import io.rsocket.frame.FrameType;
@@ -158,7 +156,7 @@ final class RequestChannelFlux extends Flux<Payload>
             final ByteBuf data = p.data();
             final ByteBuf metadata = p.metadata();
 
-            if (hasMetadata ? !isValid(mtu, data, metadata) : !isValid(mtu, data)) {
+            if (!isValid(mtu, data, metadata, hasMetadata, true)) {
               final Throwable t = new IllegalArgumentException("Too Big Payload size");
 
               p.release();
@@ -172,7 +170,7 @@ final class RequestChannelFlux extends Flux<Payload>
             streamId = this.streamIdSupplier.nextStreamId(as);
             this.streamId = streamId;
 
-            if (hasMetadata ? isFragmentable(mtu, data, metadata) : isFragmentable(mtu, data)) {
+            if (isFragmentable(mtu, data, metadata, hasMetadata, true)) {
               final ByteBuf slicedData = data.slice();
               final ByteBuf slicedMetadata = hasMetadata ? metadata.slice() : Unpooled.EMPTY_BUFFER;
 
@@ -263,7 +261,7 @@ final class RequestChannelFlux extends Flux<Payload>
         final ByteBuf data = p.data();
         final ByteBuf metadata = p.metadata();
 
-        if (hasMetadata ? !isValid(mtu, data, metadata) : !isValid(mtu, data)) {
+        if (!isValid(mtu, data, metadata, hasMetadata, false)) {
           final Throwable t = new IllegalArgumentException("Too Big Payload size");
           final ByteBuf cancelFrame = CancelFrameFlyweight.encode(allocator, streamId);
 
@@ -274,7 +272,7 @@ final class RequestChannelFlux extends Flux<Payload>
           return;
         }
 
-        if (hasMetadata ? isFragmentable(mtu, data, metadata) : isFragmentable(mtu, data)) {
+        if (isFragmentable(mtu, data, metadata, hasMetadata, false)) {
           final ByteBuf slicedData = p.data().slice();
           final ByteBuf slicedMetadata = hasMetadata ? p.metadata().slice() : Unpooled.EMPTY_BUFFER;
 
