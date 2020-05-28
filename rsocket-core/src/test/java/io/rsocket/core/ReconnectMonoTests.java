@@ -133,7 +133,8 @@ public class ReconnectMonoTests {
 
       Assertions.assertThat(
               reconnectMono.resolvingInner.add(
-                  new ReconnectMono.ReconnectInner<>(processor, reconnectMono.resolvingInner)))
+                  new ResolvingOperator.MonoDeferredResolutionOperator<>(
+                      processor, reconnectMono.resolvingInner)))
           .isEqualTo(ResolvingOperator.READY_STATE);
 
       Assertions.assertThat(expired).isEmpty();
@@ -375,7 +376,8 @@ public class ReconnectMonoTests {
 
       Assertions.assertThat(
               reconnectMono.resolvingInner.add(
-                  new ReconnectMono.ReconnectInner<>(processor, reconnectMono.resolvingInner)))
+                  new ResolvingOperator.MonoDeferredResolutionOperator<>(
+                      processor, reconnectMono.resolvingInner)))
           .isEqualTo(ResolvingOperator.READY_STATE);
 
       Assertions.assertThat(expired).isEmpty();
@@ -421,7 +423,8 @@ public class ReconnectMonoTests {
 
       Assertions.assertThat(
               reconnectMono.resolvingInner.add(
-                  new ReconnectMono.ReconnectInner<>(processor, reconnectMono.resolvingInner)))
+                  new ResolvingOperator.MonoDeferredResolutionOperator<>(
+                      processor, reconnectMono.resolvingInner)))
           .isEqualTo(ResolvingOperator.READY_STATE);
 
       Assertions.assertThat(expired).isEmpty();
@@ -465,7 +468,7 @@ public class ReconnectMonoTests {
 
       Assertions.assertThat(
               reconnectMono.resolvingInner.add(
-                  new ReconnectMono.ReconnectInner<>(
+                  new ResolvingOperator.MonoDeferredResolutionOperator<>(
                       MonoProcessor.create(), reconnectMono.resolvingInner)))
           .isEqualTo(ResolvingOperator.READY_STATE);
 
@@ -709,9 +712,12 @@ public class ReconnectMonoTests {
                     .parents()
                     .map(s -> s.getClass())
                     .collect(Collectors.toList()))
-        .hasSize(3)
+        .hasSize(4)
         .containsExactly(
-            ReconnectMono.ReconnectInner.class, ReconnectMono.class, publisher.mono().getClass());
+            ResolvingOperator.MonoDeferredResolutionOperator.class,
+            ReconnectMono.ResolvingInner.class,
+            ReconnectMono.class,
+            publisher.mono().getClass());
 
     reconnectMono.dispose();
 
@@ -795,10 +801,6 @@ public class ReconnectMonoTests {
   public void shouldBePossibleToRemoveThemSelvesFromTheList_CancellationTest() {
     final TestPublisher<String> publisher =
         TestPublisher.createNoncompliant(TestPublisher.Violation.REQUEST_OVERFLOW);
-    // given
-    final int minBackoff = 1;
-    final int maxBackoff = 5;
-    final int timeout = 10;
 
     final ReconnectMono<String> reconnectMono =
         publisher.mono().as(source -> new ReconnectMono<>(source, onExpire(), onValue()));
@@ -864,10 +866,6 @@ public class ReconnectMonoTests {
   @Test
   public void shouldNotifyAllTheSubscribers() {
     final TestPublisher<String> publisher = TestPublisher.create();
-    // given
-    final int minBackoff = 1;
-    final int maxBackoff = 5;
-    final int timeout = 10;
 
     final ReconnectMono<String> reconnectMono =
         publisher.mono().as(source -> new ReconnectMono<>(source, onExpire(), onValue()));
@@ -1119,9 +1117,5 @@ public class ReconnectMonoTests {
       assertEquals(exceptions[index], retryContext.failure().getClass());
       index++;
     }
-  }
-
-  static boolean isRetryExhausted(Throwable e, Class<? extends Throwable> cause) {
-    return Exceptions.isRetryExhausted(e) && cause.isInstance(e.getCause());
   }
 }

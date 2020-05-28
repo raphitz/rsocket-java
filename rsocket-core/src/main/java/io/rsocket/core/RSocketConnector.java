@@ -21,6 +21,7 @@ import io.rsocket.ConnectionSetupPayload;
 import io.rsocket.DuplexConnection;
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
+import io.rsocket.RSocketClient;
 import io.rsocket.SocketAcceptor;
 import io.rsocket.fragmentation.FragmentationDuplexConnection;
 import io.rsocket.fragmentation.ReassemblyDuplexConnection;
@@ -341,7 +342,9 @@ public class RSocketConnector {
    *
    * @param retry a retry spec that declares the rules for reconnecting
    * @return the same instance for method chaining
+   * @deprecated since 1.0.1 in favor of {@link #connectAsClient}
    */
+  @Deprecated
   public RSocketConnector reconnect(Retry retry) {
     this.retrySpec = Objects.requireNonNull(retry);
     return this;
@@ -585,5 +588,13 @@ public class RSocketConnector {
                 return source;
               }
             });
+  }
+
+  public RSocketClient connectAsClient(ClientTransport transport) {
+    return new DefaultRSocketClient(connect(transport));
+  }
+
+  public RSocketClient connectAsClient(Supplier<ClientTransport> transportSupplier) {
+    return new DefaultRSocketClient(connect(transportSupplier));
   }
 }

@@ -28,7 +28,6 @@ import reactor.core.Disposable;
 import reactor.core.Scannable;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Operators;
-import reactor.core.publisher.Operators.MonoSubscriber;
 import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
 
@@ -80,7 +79,8 @@ final class ReconnectMono<T> extends Mono<T> implements Invalidatable, Disposabl
   @Override
   @SuppressWarnings("uncheked")
   public void subscribe(CoreSubscriber<? super T> actual) {
-    final ReconnectInner<T> inner = new ReconnectInner<>(actual, this.resolvingInner);
+    final ResolvingOperator.MonoDeferredResolutionOperator<T> inner =
+        new ResolvingOperator.MonoDeferredResolutionOperator<>(actual, this.resolvingInner);
     actual.onSubscribe(inner);
 
     this.resolvingInner.observe(inner);
@@ -227,7 +227,7 @@ final class ReconnectMono<T> extends Mono<T> implements Invalidatable, Disposabl
     }
   }
 
-  static final class ResolvingInner<T> extends ResolvingOperator<T> {
+  static final class ResolvingInner<T> extends ResolvingOperator<T> implements Scannable {
 
     final ReconnectMono<T> parent;
     final ReconnectMainSubscriber<? super T> mainSubscriber;
@@ -256,56 +256,11 @@ final class ReconnectMono<T> extends Mono<T> implements Invalidatable, Disposabl
     protected void doSubscribe() {
       this.parent.source.subscribe(this.mainSubscriber);
     }
-  }
-
-  static final class ReconnectInner<T> extends MonoSubscriber<T, T>
-      implements BiConsumer<T, Throwable> {
-
-    final ResolvingInner<T> parent;
-
-    ReconnectInner(CoreSubscriber<? super T> actual, ResolvingInner<T> parent) {
-      super(actual);
-      this.parent = parent;
-    }
-
-    @Override
-    public void accept(T t, Throwable throwable) {
-      if (throwable != null) {
-        onError(throwable);
-        return;
-      }
-
-      complete(t);
-    }
-
-    @Override
-    public void cancel() {
-      if (!isCancelled()) {
-        super.cancel();
-        this.parent.remove(this);
-      }
-    }
-
-    @Override
-    public void onComplete() {
-      if (!isCancelled()) {
-        this.actual.onComplete();
-      }
-    }
-
-    @Override
-    public void onError(Throwable t) {
-      if (isCancelled()) {
-        Operators.onErrorDropped(t, currentContext());
-      } else {
-        this.actual.onError(t);
-      }
-    }
 
     @Override
     public Object scanUnsafe(Attr key) {
-      if (key == Attr.PARENT) return this.parent.parent;
-      return super.scanUnsafe(key);
+      if (key == Attr.PARENT) return this.parent;
+      return null;
     }
   }
 }

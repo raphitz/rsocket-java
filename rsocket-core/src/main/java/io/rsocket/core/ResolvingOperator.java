@@ -751,4 +751,55 @@ class ResolvingOperator<T> implements Disposable {
       }
     }
   }
+
+  static class MonoDeferredResolutionOperator<T> extends Operators.MonoSubscriber<T, T>
+      implements BiConsumer<T, Throwable> {
+
+    final ResolvingOperator<T> parent;
+
+    MonoDeferredResolutionOperator(CoreSubscriber<? super T> actual, ResolvingOperator<T> parent) {
+      super(actual);
+      this.parent = parent;
+    }
+
+    @Override
+    public void accept(T t, Throwable throwable) {
+      if (throwable != null) {
+        onError(throwable);
+        return;
+      }
+
+      complete(t);
+    }
+
+    @Override
+    public void cancel() {
+      if (!isCancelled()) {
+        super.cancel();
+        this.parent.remove(this);
+      }
+    }
+
+    @Override
+    public void onComplete() {
+      if (!isCancelled()) {
+        this.actual.onComplete();
+      }
+    }
+
+    @Override
+    public void onError(Throwable t) {
+      if (isCancelled()) {
+        Operators.onErrorDropped(t, currentContext());
+      } else {
+        this.actual.onError(t);
+      }
+    }
+
+    @Override
+    public Object scanUnsafe(Attr key) {
+      if (key == Attr.PARENT) return this.parent;
+      return super.scanUnsafe(key);
+    }
+  }
 }
